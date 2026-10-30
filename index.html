@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIX APP — Shared PDF Library</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#172033;--muted:#64748b;--accent:#5b4bdb;--line:#e4e8f1;--good:#137a4b;--bad:#b42318}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+header{background:linear-gradient(120deg,#28205e,#5b4bdb);color:white;padding:28px 18px}
+.wrap{max-width:1120px;margin:auto}header h1{margin:0;font-size:clamp(28px,4vw,40px)}header p{margin:6px 0 0;color:#e8e5ff}
+main{padding:24px 16px 56px}.notice{background:#fff8e6;border:1px solid #f2d28c;padding:12px 14px;border-radius:12px;margin-bottom:18px;color:#634b0a}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 4px 18px #18244a0a}
+h2{font-size:20px;margin:0 0 12px}p.sub{color:var(--muted);margin:0 0 16px;font-size:14px}
+input[type=text],input[type=search]{width:100%;padding:11px 12px;border:1px solid #cfd5e3;border-radius:10px;font:inherit;margin:6px 0 12px}
+input[type=file]{display:block;width:100%;padding:12px;border:1px dashed #aab3c8;border-radius:10px;background:#fafbff;margin:8px 0 12px}
+button{border:0;border-radius:10px;padding:10px 14px;font:600 14px system-ui;cursor:pointer;background:var(--accent);color:#fff}
+button.secondary{background:#eef0ff;color:#352c9a}button.ghost{background:#f1f3f8;color:#334155}button:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.row>*{flex:0 0 auto}.row input[type=text]{flex:1 1 160px}
+.status{margin-top:12px;color:var(--muted);font-size:14px;white-space:pre-wrap}.status.error{color:var(--bad)}.status.ok{color:var(--good)}
+.library{grid-column:1/-1}.filelist{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:12px}
+.file{border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0;background:#fff}.file.selected{border:2px solid var(--accent);background:#f7f6ff}.filetop{display:flex;gap:10px;align-items:flex-start}.icon{font-size:28px;line-height:1}.filename{font-weight:650;overflow-wrap:anywhere}.meta{color:var(--muted);font-size:12px;margin-top:4px}.file button{margin-top:10px}
+.queue{margin:10px 0 0;padding:0;list-style:none}.queue li{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--line)}.queue .qname{flex:1;overflow-wrap:anywhere}.queue button{padding:6px 9px}
+.small{font-size:12px;color:var(--muted)}footer{text-align:center;color:var(--muted);font-size:13px;padding:0 16px 28px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.library{grid-column:auto}.card{padding:16px}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>📚 MIX APP</h1><p>Shared image & PDF library · Build one PDF from new or stored files</p></div></header>
+<main class="wrap">
+<div class="notice"><strong>Shared library:</strong> files uploaded here may be visible to anyone using this website. Do not upload private or sensitive documents.</div>
+<div class="grid">
+<section class="card">
+<h2>⬆️ Upload files</h2><p class="sub">Choose images or PDFs from your computer. They will be saved in the shared library.</p>
+<label for="newFiles"><strong>Select images and PDFs</strong></label>
+<input id="newFiles" type="file" accept="image/jpeg,image/png,application/pdf" multiple>
+<label for="title"><strong>Optional title</strong></label><input id="title" type="text" maxlength="100" placeholder="e.g. Product photos">
+<button id="uploadBtn">Upload to shared library</button>
+<div id="uploadStatus" class="status" role="status"></div>
+<p class="small">Supported: JPG, PNG, PDF. Max 15 MB per file. PDFs are merged in the order you choose.</p>
+</section>
+<section class="card">
+<h2>🔀 Build your PDF</h2><p class="sub">Select stored files below and/or add new local files. Use the arrows to set the final order.</p>
+<label for="localFiles"><strong>Add local files just for this PDF (optional)</strong></label>
+<input id="localFiles" type="file" accept="image/jpeg,image/png,application/pdf" multiple>
+<div class="row"><button id="addLocalBtn" class="secondary">Add local files to PDF queue</button><button id="clearQueueBtn" class="ghost">Clear selection</button></div>
+<ul id="queue" class="queue"><li class="small">No files selected yet.</li></ul>
+<div class="row" style="margin-top:16px"><button id="mergeBtn">Create & download PDF</button></div>
+<div id="mergeStatus" class="status" role="status"></div>
+</section>
+<section class="card library">
+<h2>🗂️ Shared library</h2><p class="sub">Select any stored image or PDF to add it to your merge queue.</p>
+<input id="search" type="search" placeholder="Search filenames or titles…">
+<div id="libraryStatus" class="status">Connecting to the shared library…</div>
+<div id="filelist" class="filelist"></div>
+</section>
+</div>
+</main>
+<footer>MIX APP · Hosted on GitHub Pages · Files are stored in Firebase</footer>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, push, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDP2xCw0Vnf4n6nUg3Ll3OQGQIHaVPCEB8",
+  authDomain: "mix-app-74846.firebaseapp.com",
+  databaseURL: "https://mix-app-74846-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "mix-app-74846",
+  storageBucket: "mix-app-74846.firebasestorage.app",
+  messagingSenderId: "30397540569",
+  appId: "1:30397540569:web:19b2bbd2a0eee3fccdb6c8"
+};
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const storage = getStorage(app);
+const $ = id => document.getElementById(id);
+let library = [];
+let queue = [];
+const MAX_BYTES = 15 * 1024 * 1024;
+const allowed = f => ["application/pdf","image/jpeg","image/png"].includes(f.type) && f.size <= MAX_BYTES;
+const niceSize = n => n < 1024*1024 ? `${(n/1024).toFixed(0)} KB` : `${(n/1024/1024).toFixed(1)} MB`;
+function status(id,msg,kind=""){const el=$(id);el.textContent=msg;el.className="status "+kind;}
+function safeName(s){return (s||"file").replace(/[^\w.\- ()]/g,"_").slice(0,120);}
+function queueAdd(item){if(queue.some(x=>x.id===item.id && x.id))return;queue.push(item);renderQueue();}
+function renderQueue(){
+ const el=$("queue");el.innerHTML="";
+ if(!queue.length){el.innerHTML='<li class="small">No files selected yet.</li>';return;}
+ queue.forEach((it,i)=>{
+  const li=document.createElement("li");
+  const name=document.createElement("span");name.className="qname";name.textContent=`${i+1}. ${it.name}`;
+  const up=document.createElement("button");up.className="ghost";up.textContent="↑";up.title="Move up";up.disabled=i===0;up.onclick=()=>{[queue[i-1],queue[i]]=[queue[i],queue[i-1]];renderQueue();};
+  const down=document.createElement("button");down.className="ghost";down.textContent="↓";down.title="Move down";down.disabled=i===queue.length-1;down.onclick=()=>{[queue[i+1],queue[i]]=[queue[i],queue[i+1]];renderQueue();};
+  const remove=document.createElement("button");remove.className="ghost";remove.textContent="✕";remove.title="Remove from queue";remove.onclick=()=>{queue.splice(i,1);renderQueue();};
+  li.append(name,up,down,remove);el.append(li);
+ });
+}
+function renderLibrary(){
+ const term=$("search").value.trim().toLowerCase();const root=$("filelist");root.innerHTML="";
+ const filtered=library.filter(x=>`${x.name||""} ${x.title||""}`.toLowerCase().includes(term));
+ if(!filtered.length){status("libraryStatus",library.length?"No matching files.":"No files uploaded yet.");return;}
+ status("libraryStatus",`${filtered.length} file(s) in the shared library.`);
+ filtered.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).forEach(item=>{
+  const card=document.createElement("article");card.className="file";
+  const top=document.createElement("div");top.className="filetop";
+  const icon=document.createElement("span");icon.className="icon";icon.textContent=item.type==="application/pdf"?"📄":"🖼️";
+  const text=document.createElement("div");
+  const title=document.createElement("div");title.className="filename";title.textContent=item.title||item.name||"Untitled";
+  const meta=document.createElement("div");meta.className="meta";meta.textContent=`${item.type==="application/pdf"?"PDF":"Image"} · ${item.size?niceSize(item.size):"stored file"}`;
+  text.append(title,meta);top.append(icon,text);card.append(top);
+  const add=document.createElement("button");add.className="secondary";add.textContent=queue.some(q=>q.id===item.id)?"Already selected":"Add to PDF queue";
+  add.disabled=queue.some(q=>q.id===item.id);
+  add.onclick=()=>{queueAdd({id:item.id,name:item.name,type:item.type,url:item.url,source:"library"});renderLibrary();};
+  card.append(add);root.append(card);
+ });
+}
+onValue(ref(db,"files"),snapshot=>{
+ const data=snapshot.val()||{};
+ library=Object.entries(data).map(([id,v])=>({...v,id})).filter(x=>x.url && ["application/pdf","image/jpeg","image/png"].includes(x.type));
+ renderLibrary();
+},err=>status("libraryStatus",`Cannot read library: ${err.message}. Check Realtime Database rules.`,`error`));
+
+$("search").addEventListener("input",renderLibrary);
+$("uploadBtn").addEventListener("click",async()=>{
+ const files=[...$("newFiles").files];if(!files.length){status("uploadStatus","Choose at least one JPG, PNG, or PDF file.","error");return;}
+ const invalid=files.find(f=>!allowed(f));if(invalid){status("uploadStatus",`Unsupported file or file over 15 MB: ${invalid.name}`,"error");return;}
+ const btn=$("uploadBtn");btn.disabled=true;
+ try{
+  for(let i=0;i<files.length;i++){
+   const f=files[i];status("uploadStatus",`Uploading ${i+1}/${files.length}: ${f.name}`);
+   const id=push(ref(db,"files")).key;const path=`library/${id}/${safeName(f.name)}`;
+   const sref=storageRef(storage,path);
+   await uploadBytes(sref,f,{contentType:f.type,customMetadata:{originalName:f.name}});
+   const url=await getDownloadURL(sref);
+   await set(ref(db,`files/${id}`),{name:f.name,title:$("title").value.trim()||f.name,type:f.type,size:f.size,url,path,createdAt:Date.now()});
+  }
+  $("newFiles").value="";$("title").value="";
+  status("uploadStatus",`Successfully uploaded ${files.length} file(s). They are now in the shared library.`,"ok");
+ }catch(e){status("uploadStatus",`Upload failed: ${e.message}. Check Firebase Storage and Realtime Database rules.`,`error`);}
+ finally{btn.disabled=false;}
+});
+$("addLocalBtn").addEventListener("click",()=>{
+ const files=[...$("localFiles").files];if(!files.length){status("mergeStatus","Choose local images or PDFs first.","error");return;}
+ const invalid=files.find(f=>!allowed(f));if(invalid){status("mergeStatus",`Unsupported file or file over 15 MB: ${invalid.name}`,"error");return;}
+ files.forEach((f,i)=>queueAdd({id:null,localKey:`${f.name}-${f.size}-${f.lastModified}-${i}`,name:f.name,type:f.type,blob:f,source:"local"}));
+ $("localFiles").value="";status("mergeStatus",`${files.length} local file(s) added to the PDF queue.`,"ok");
+});
+$("clearQueueBtn").addEventListener("click",()=>{queue=[];renderQueue();status("mergeStatus","Selection cleared.");renderLibrary();});
+$("mergeBtn").addEventListener("click",async()=>{
+ if(!queue.length){status("mergeStatus","Select at least one image or PDF.","error");return;}
+ const btn=$("mergeBtn");btn.disabled=true;
+ try{
+  status("mergeStatus","Loading PDF tools…");
+  const { PDFDocument } = await import("https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm");
+  const out=await PDFDocument.create();
+  for(let i=0;i<queue.length;i++){
+   const item=queue[i];status("mergeStatus",`Adding ${i+1}/${queue.length}: ${item.name}`);
+   let bytes;
+   if(item.source==="local") bytes=await item.blob.arrayBuffer();
+   else {const response=await fetch(item.url);if(!response.ok)throw new Error(`Could not download ${item.name}`);bytes=await response.arrayBuffer();}
+   if(item.type==="application/pdf"){
+    const src=await PDFDocument.load(bytes,{ignoreEncryption:true});
+    const pages=await out.copyPages(src,src.getPageIndices());pages.forEach(p=>out.addPage(p));
+   }else{
+    const img=item.type==="image/png"?await out.embedPng(bytes):await out.embedJpg(bytes);
+    const page=out.addPage([img.width,img.height]);page.drawImage(img,{x:0,y:0,width:img.width,height:img.height});
+   }
+  }
+  const result=await out.save();const blob=new Blob([result],{type:"application/pdf"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="mix-app-merged.pdf";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  status("mergeStatus","PDF created and downloaded successfully.","ok");
+ }catch(e){status("mergeStatus",`Could not create PDF: ${e.message}. Check that stored files are readable and that CORS/storage rules allow downloads.`,"error");}
+ finally{btn.disabled=false;}
+});
+renderQueue();
+</script>
+</body>
+</html>
